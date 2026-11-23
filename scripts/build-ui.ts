@@ -24,6 +24,7 @@ await r.stop();
 await a.finishRecording(s.id, r, new ScriptedTranscriber(transcript));
 await a.extract(s.id);
 const goals = a.draftGoals(s.id);
+await a.draftNarratives(s.id);
 const mts = new Map(ptLayer.measureTypes.map((m) => [m.id, m]));
 
 const at = (span: { segmentIndex: number } | null) => {
@@ -38,6 +39,9 @@ const data = JSON.stringify({
   findings: a.findings(s.id).map((f) => ({ ...f, at: at(f.sourceSpan) })),
   measurements: a.measurements(s.id).map((m) => ({ ...m, display: ptLayer.formatMeasurement(m, mts.get(m.measureTypeId)), at: at(m.sourceSpan) })),
   goals,
+  // Only the transcript lines that a narrative cites; the transcript itself stays hidden.
+  segments: Object.fromEntries(a.findings(s.id).flatMap((f) => f.parts ?? []).flatMap((p) => p.evidence)
+    .flatMap((e) => (e.kind === 'transcript' && transcript[e.segmentIndex] ? [[e.segmentIndex, transcript[e.segmentIndex]]] : []))),
   queue: a.confirmQueue(s.id).map((q) => q.ref.id),
 }).replace(/</g, '\\u003c');
 

@@ -1,3 +1,5 @@
+import type { NarrativePart } from './narrative.js';
+
 /**
  * Shared data model for the AI documentation core.
  *
@@ -97,7 +99,11 @@ export type ReviewFlag =
   | { kind: 'low_confidence'; detail?: string }
   | { kind: 'conflict'; withIds: string[] }
   | { kind: 'out_of_range'; detail: string }
-  | { kind: 'assumed_from_context'; detail: string };
+  | { kind: 'assumed_from_context'; detail: string }
+  /** AI-written narrative: the PT must read it before signing. */
+  | { kind: 'requires_review'; detail: string }
+  /** A narrative claim with no source in the visit (invented number, bad citation). */
+  | { kind: 'unsupported_claim'; detail: string };
 
 /**
  * Subjective / narrative data. Keyed by a template-independent clinical
@@ -107,6 +113,8 @@ export type ReviewFlag =
 export interface Finding extends Reviewable {
   fieldKey: string;
   value: unknown;
+  /** Narrative findings (e.g. assessment): paragraphs with their evidence. */
+  parts?: NarrativePart[];
 }
 
 export type MeasureMode = 'active' | 'passive';

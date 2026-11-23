@@ -1,3 +1,4 @@
+import type { NarrativeDrafter } from './narrative.js';
 import type {
   ClinicalFieldDef,
   Discipline,
@@ -62,6 +63,8 @@ export interface DisciplineLayer {
   defaultTemplateId: string;
   extractors: Extractor[];
   goalPatterns: GoalPattern[];
+  /** Sections written from the whole visit, e.g. the assessment. */
+  narrativeDrafters: NarrativeDrafter[];
   goalTimeframes: { shortWeeks: number; longWeeks: number };
   /** Instructions for an LLM extractor, assembled from this layer's schema. */
   extractionPrompt: string;

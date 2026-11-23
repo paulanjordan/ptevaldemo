@@ -43,6 +43,7 @@ const otLayer: DisciplineLayer = {
       targetValue: { kind: 'number', value: 30 }, timeframeWeeks: timeframes.longWeeks, functionalOutcome: 'opening jars',
     })),
   }],
+  narrativeDrafters: [],
   goalTimeframes: { shortWeeks: 3, longWeeks: 6 },
   extractionPrompt: 'OT prompt',
   formatMeasurement: (m) => `grip ${(m.value as { value: number }).value} kg`,

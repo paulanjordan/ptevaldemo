@@ -4,7 +4,7 @@ A standalone prototype of the **shared AI documentation core** and the **PT disc
 
 ```bash
 npm install
-npm test           # 54 tests
+npm test           # 65 tests
 npm run typecheck
 npm run demo       # end-to-end eval on the synthetic test patient
 npm run db:check   # applies migrations to a throwaway Postgres 16 and tests DB guards
@@ -42,6 +42,27 @@ src/disciplines/pt/     PT layer: config + strategies only
 src/emr/                EmrAdapter port + MockEmr with one synthetic patient
 db/migrations/          Postgres schema with consent / lock / append-only triggers
 ```
+
+## AI-drafted assessment
+
+After extraction and goal drafting, `draftNarratives` writes the **Assessment** from the whole visit: the transcript, every finding and measure, the draft goals, and the referral. It has five paragraphs:
+
+1. **Presentation:** age, sex, referral, chief complaint, onset and pain.
+2. **Impairments:** measured deficits compared with the other side, plus effusion and gait.
+3. **Functional limitations:** contrasted with prior level of function and work demands.
+4. **Clinical impression:** special tests and consistency with the referral diagnosis. This paragraph is marked as needing the PT's judgment.
+5. **Goals and need for skilled PT:** the patient's goals, why skilled PT is needed, and the plan.
+
+Safeguards:
+- **Cited sources:** each paragraph lists the items it was written from ("Based on N" in the UI).
+- **Number check:** a number that doesn't appear in a paragraph's sources, or a citation to an item that doesn't exist, raises a `Check this claim` flag at the top of the review queue.
+- **PT approval:** the assessment always goes to the review queue, and the note can't be signed until the PT approves or edits it.
+- **No overwriting:** re-drafting never replaces text the PT wrote or edited.
+- **Excluded items:** rejected items, and conflicting values the PT hasn't resolved, are left out.
+
+There are two drafters behind one interface (`NarrativeDrafter`):
+- **`RuleAssessmentDrafter`** (default) composes the assessment from the structured data. The demo and UI use it.
+- **`LlmAssessmentDrafter`** sends the visit to an LLM with a PT-specific prompt (`ASSESSMENT_SYSTEM_PROMPT`), using short references such as M3 and T7 instead of ids, with no name or date of birth. It is enabled with `withAiAssessment(client)`. `src/providers/claude.ts` is a ready Claude client for this, kept off until a vendor is approved under a BAA.
 
 ## How it maps to the PRD
 

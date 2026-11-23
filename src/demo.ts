@@ -34,9 +34,11 @@ console.log('\nMissing required fields:', assistant.completeness(session.id).map
 for (const q of assistant.confirmQueue(session.id)) assistant.confirm(q.ref, PT);
 // PT fills what the assistant left empty.
 assistant.addFinding(session.id, PT, 'subjective.chief_complaint', 'R knee pain and stiffness limiting stairs and hiking');
-assistant.addFinding(session.id, PT, 'assessment.summary', 'Signs consistent with R knee OA with medial joint line involvement; good rehab potential.');
 
 const goals = assistant.draftGoals(session.id);
+const [assessment] = await assistant.draftNarratives(session.id);
+console.log(`\nDrafted assessment (needs PT review):\n${assessment!.value}`);
+assistant.confirm({ kind: 'finding', id: assessment!.id }, PT);
 console.log(`\nDrafted ${goals.length} goals:`);
 for (const g of goals) console.log(`  ${g.term === 'short' ? 'STG' : 'LTG'}: ${g.text}`);
 for (const g of goals) assistant.confirm({ kind: 'goal', id: g.id }, PT);

@@ -175,6 +175,14 @@ textarea.input { width: 100%; min-height: 72px; resize: vertical; line-height: 1
 .source { grid-column: 1 / -1; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; display: grid; gap: 4px; }
 .source q { quotes: "\201C" "\201D"; }
 .source .who-said { font-size: 12px; color: var(--ink-3); }
+.narr p { margin: 0 0 10px; line-height: 1.55; }
+.narr p:last-child { margin-bottom: 0; }
+.narr .np-h { display: block; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 2px; }
+.judg { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); margin-left: 6px; letter-spacing: .02em; text-transform: none; }
+.evbtn { border: 0; background: transparent; color: var(--accent); font-weight: 600; font-size: 13px; padding: 0 2px; text-decoration: underline; text-underline-offset: 2px; }
+.evlist { margin: 6px 0 4px; padding: 10px 12px; list-style: none; display: grid; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.evlist li { display: flex; gap: 8px; }
+.evlist .k { color: var(--ink-3); min-width: 76px; }
 .goal-actions { grid-column: 2 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
 .goal-text { line-height: 1.5; }
 .goal-links { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
@@ -326,6 +334,8 @@ const GRADES = ['0', '1', '2-', '2', '2+', '3-', '3', '3+', '4-', '4', '4+', '5'
 const parseGrade = (g) => ({ grade: Number(g[0]), modifier: g[1] || null });
 
 function flagText(f) {
+  if (f.kind === 'requires_review') return `<b>AI-written.</b> ${esc(f.detail.replace(/^AI-written /, 'Drafted '))}.`;
+  if (f.kind === 'unsupported_claim') return `<b>Check this claim.</b> ${esc(f.detail)}`;
   if (f.kind === 'conflict') return '<b>Two values recorded.</b> Keep one.';
   if (f.kind === 'out_of_range') return `<b>Outside plausible range.</b> ${esc(f.detail)}`;
   if (f.kind === 'assumed_from_context') return `<b>Assumed.</b> ${esc(f.detail.charAt(0).toUpperCase() + f.detail.slice(1))}`;
@@ -424,7 +434,7 @@ function viewRecord() {
   </section>`;
 }
 
-const PROC_STEPS = ['Uploading audio', 'Transcribing (stays hidden)', 'Extracting findings and measures', 'Filling the template', 'Drafting goals'];
+const PROC_STEPS = ['Uploading audio', 'Transcribing (stays hidden)', 'Extracting findings and measures', 'Filling the template', 'Drafting goals', 'Writing the assessment'];
 function viewProcessing() {
   return `<section class="card proc" aria-live="polite">
     <div class="eyebrow">Session ended · ${mmss(S.rec.ms || DATA.session.durationMs)}</div>
@@ -460,13 +470,33 @@ function lineHtml(x, label, opts = {}) {
     : `${x.sourceSpan ? `<button class="iconbtn" data-action="source" data-id="${x.id}" aria-expanded="${open === 'source'}" aria-label="Show what was said">${I.quote}</button>` : ''}
        <button class="iconbtn" data-action="edit" data-id="${x.id}" aria-expanded="${open === 'edit'}" aria-label="Edit">${I.edit}</button>
        <button class="iconbtn" data-action="reject" data-id="${x.id}" aria-label="Remove from note">${I.x}</button>`;
+  const body = x.parts && x.status !== 'edited' ? narrativeHtml(x) : x.parts ? `<div class="narr">${String(x.value).split(/\n\n+/).map((p) => `<p>${esc(p)}</p>`).join('')}</div>` : `${esc(itemText(x))}${opts.extra || ''}`;
   return `<div class="line ${flagged ? (conflict ? 'conflict' : 'flagged') : ''} ${x.status === 'rejected' ? 'rejected' : ''}" id="row-${x.id}">
     <div class="lbl">${esc(label)}</div>
-    <div class="val ${isMeasure ? 'measure' : ''}">${esc(itemText(x))}${opts.extra || ''}</div>
+    <div class="val ${isMeasure ? 'measure' : ''}">${body}</div>
     <div class="meta">${flagged ? `<span class="prov" style="background:var(${conflict ? '--bad-soft' : '--warn-soft'});color:var(${conflict ? '--bad' : '--warn'})">Review</span>` : ''}<span class="prov ${prov(x)}">${PROV_LABEL[prov(x)]}</span>${acts}</div>
     ${open === 'source' ? sourceHtml(x) : ''}
     ${open === 'edit' ? editorHtml(x) : ''}
   </div>`;
+}
+function evidenceText(e) {
+  if (e.kind === 'transcript') {
+    const seg = DATA.segments && DATA.segments[e.segmentIndex];
+    return seg ? ['Said', `${seg.speaker === 'patient' ? 'Patient' : 'You'} · ${mmss(seg.startMs)}: \u201c${seg.text}\u201d`] : ['Said', 'Transcript line'];
+  }
+  const it = byId(e.id);
+  if (!it) return ['Missing', 'Item not in this visit'];
+  if (e.kind === 'goal') return [it.term === 'short' ? 'STG' : 'LTG', it.text];
+  if (e.kind === 'measurement') return ['Measure', fmtMeasure(it)];
+  return [fieldLabel(it.fieldKey).replace(/ \(0–10\)/, ''), `${itemText(it)}${it.status === 'rejected' ? ' (removed)' : ''}`];
+}
+function narrativeHtml(x) {
+  return `<div class="narr">${x.parts.map((p, i) => {
+    const open = S.open && S.open.id === x.id && S.open.kind === 'evidence' && S.open.part === i;
+    return `<p><span class="np-h">${esc(p.heading)}${p.needsJudgment ? '<span class="judg">Your judgment</span>' : ''}</span>${esc(p.text)}
+      <button class="evbtn" data-action="evidence" data-id="${x.id}" data-part="${i}" aria-expanded="${open}">Based on ${p.evidence.length}</button></p>
+      ${open ? `<ul class="evlist">${p.evidence.map((e) => { const [k, v] = evidenceText(e); return `<li><span class="k">${esc(k)}</span><span>${esc(v)}</span></li>`; }).join('')}</ul>` : ''}`;
+  }).join('')}</div>`;
 }
 function sourceHtml(x) {
   const who = x.at ? (x.at.speaker === 'patient' ? 'Patient' : 'You') : '';
@@ -478,7 +508,7 @@ function editorHtml(x) {
   if (k === 'goal') field = `<textarea class="input" id="ed-${x.id}" aria-label="Goal text">${esc(x.text)}</textarea>`;
   else if (k === 'finding') field = fieldKind(x.fieldKey) === 'number'
     ? `<input class="input mono" type="number" min="0" max="10" id="ed-${x.id}" value="${esc(x.value)}" aria-label="${esc(fieldLabel(x.fieldKey))}"> <span class="hint">/ 10</span>`
-    : `<textarea class="input" id="ed-${x.id}" aria-label="${esc(fieldLabel(x.fieldKey))}">${esc(x.value)}</textarea>`;
+    : `<textarea class="input" id="ed-${x.id}" aria-label="${esc(fieldLabel(x.fieldKey))}" ${x.parts ? 'style="min-height:260px"' : ''}>${esc(x.value)}</textarea>`;
   else if (x.value.kind === 'number') field = `<input class="input mono" type="number" id="ed-${x.id}" value="${x.value.value}" style="width:110px" aria-label="Value in degrees"> <span class="hint">°</span>
       <div class="seg" role="group" aria-label="Side">${['left', 'right', 'bilateral'].map((s) => `<button type="button" data-action="ed-side" data-id="${x.id}" data-v="${s}" aria-pressed="${(S.draftSide || x.side) === s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join('')}</div>
       <div class="seg" role="group" aria-label="Active or passive">${['active', 'passive'].map((s) => `<button type="button" data-action="ed-mode" data-id="${x.id}" data-v="${s}" aria-pressed="${(S.draftMode || x.mode) === s}">${s === 'active' ? 'AROM' : 'PROM'}</button>`).join('')}</div>`;
@@ -581,7 +611,7 @@ function railHtml() {
   const cards = queueCards();
   const qHtml = cards.map((c) => {
     const x = c.items[0];
-    const label = x.measureTypeId ? fmtMeasure(x) : `${fieldLabel(x.fieldKey)}: ${itemText(x)}`;
+    const label = x.measureTypeId ? fmtMeasure(x) : x.parts ? `${fieldLabel(x.fieldKey)} · ${x.parts.length} paragraphs` : `${fieldLabel(x.fieldKey)}: ${itemText(x)}`;
     if (c.conflict) return `<div class="qitem conflict">
         <div class="what measure">${esc(SIDE[x.side] || '')}${esc(x.joint)} ${esc(x.motion)}${x.mode === 'active' ? ' AROM' : x.mode === 'passive' ? ' PROM' : ''}</div>
         <div class="why">${flagText(x.flags.find((f) => f.kind === 'conflict'))}</div>
@@ -591,7 +621,7 @@ function railHtml() {
         <div class="what ${x.measureTypeId ? 'measure' : ''}">${esc(label)}</div>
         <div class="why">${x.flags.map(flagText).join('<br>')}</div>
         ${x.sourceSpan ? `<q>${esc(x.sourceSpan.text)}</q>` : ''}
-        <div class="acts"><button class="btn sm primary" data-action="confirm" data-id="${x.id}">Confirm</button><button class="btn sm" data-action="edit" data-id="${x.id}" data-scroll="1">Edit</button><button class="btn sm ghost danger" data-action="reject" data-id="${x.id}">Remove</button></div>
+        <div class="acts">${x.parts ? `<button class="btn sm" data-action="read" data-id="${x.id}">Read in note</button>` : ''}<button class="btn sm primary" data-action="confirm" data-id="${x.id}">${x.parts ? 'Approve' : 'Confirm'}</button><button class="btn sm" data-action="edit" data-id="${x.id}" data-scroll="1">Edit</button><button class="btn sm ghost danger" data-action="reject" data-id="${x.id}">Remove</button></div>
       </div>`;
   }).join('');
   return `<section class="card panel" aria-labelledby="q-h">
@@ -758,6 +788,11 @@ document.addEventListener('click', (e) => {
       S.draftSide = S.draftMode = null;
       render(); if (t.dataset.scroll || a === 'edit') scrollToRow(id); break;
     case 'close': S.open = null; render(); break;
+    case 'evidence': {
+      const part = Number(t.dataset.part);
+      S.open = S.open && S.open.id === id && S.open.kind === 'evidence' && S.open.part === part ? null : { kind: 'evidence', id, part };
+      render(); break;
+    }
     case 'save': save(id); break;
     case 'confirm': setStatus(id, 'confirmed'); render(); toast(kindOf(id) === 'goal' ? 'Goal accepted' : 'Confirmed'); break;
     case 'reject': setStatus(id, 'rejected'); S.open = null; render(); toast(kindOf(id) === 'goal' ? 'Goal rejected' : 'Removed from note'); break;
@@ -772,6 +807,7 @@ document.addEventListener('click', (e) => {
       S.findings.push({ id: newId(), fieldKey: t.dataset.key, value: v, origin: 'clinician', status: 'confirmed', confidence: null, sourceSpan: null, flags: [] });
       S.open = null; render(); toast('Added to note'); break;
     }
+    case 'read': scrollToRow(id); break;
     case 'goto-goals': { const g = S.goals.find((x) => x.status === 'pending'); if (g) scrollToRow(g.id); break; }
     case 'ack': S.ack = t.checked; render(); break;
     case 'sign': go('signed'); break;

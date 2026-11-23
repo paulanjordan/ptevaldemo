@@ -12,6 +12,7 @@ import {
 import { FeatureDisabledError, type FeatureFlags, type FlagName } from './flags.js';
 import { newId, systemClock, type Clock } from './ids.js';
 import type { SpeechToTextProvider } from './providers.js';
+import { joinParts, validateNarrative, type VisitSnapshot } from './narrative.js';
 import { Recorder, type AudioUploader } from './recording.js';
 import type { Store } from './store.js';
 import type {
@@ -298,6 +299,73 @@ export class EvalAssistant {
     return out;
   }
 
+  // ------------------------------------------------------------- narratives --
+
+  /** Read-only view of the visit for narrative drafting. */
+  visitSnapshot(sessionId: string, excludeFieldKeys: string[] = []): VisitSnapshot {
+    const s = this.session(sessionId);
+    const layer = this.d.registry.get(s.discipline);
+    const mts = this.d.registry.measureTypes(s.discipline);
+    const usable = (i: Finding | Measurement) => i.status !== 'rejected' && !(i.status === 'pending' && i.flags.some((f) => f.kind === 'conflict'));
+    const findings = this.findings(sessionId).filter((f) => usable(f) && !excludeFieldKeys.includes(f.fieldKey));
+    const measurements = this.measurements(sessionId).filter(usable);
+    const goals = this.goals(sessionId).filter((g) => g.status !== 'rejected');
+    const display = new Map<string, string>();
+    for (const f of findings) display.set(f.id, `${layer.fields.find((x) => x.key === f.fieldKey)?.label ?? f.fieldKey}: ${fmtValue(f.value)}`);
+    for (const m of measurements) display.set(m.id, layer.formatMeasurement(m, mts.get(m.measureTypeId)));
+    for (const g of goals) display.set(g.id, g.text);
+    return {
+      context: s.context,
+      ageYears: ageOn(s.context.patient.dob, this.clock()),
+      transcript: this.d.store.transcripts.get(sessionId) ?? { sessionId, segments: [] },
+      findings,
+      measurements,
+      goals,
+      display,
+    };
+  }
+
+  /**
+   * Draft narrative sections (the assessment) from the whole visit. Run after
+   * extraction and goal drafting. Never overwrites text the PT wrote, edited
+   * or accepted; re-running replaces only an untouched AI draft.
+   */
+  async draftNarratives(sessionId: string): Promise<Finding[]> {
+    const s = this.editable(sessionId, null);
+    this.requireFlag('eval_assistant.narratives', s.clinicianId);
+    const layer = this.d.registry.get(s.discipline);
+    const out: Finding[] = [];
+    for (const drafter of layer.narrativeDrafters) {
+      const existing = this.findings(sessionId).filter((f) => f.fieldKey === drafter.fieldKey && f.status !== 'rejected');
+      if (existing.some((f) => f.origin === 'clinician' || f.status !== 'pending')) continue;
+      for (const f of existing) this.d.store.findings.delete(f.id);
+
+      const visit = this.visitSnapshot(sessionId, [drafter.fieldKey]);
+      const parts = await drafter.draft(visit);
+      if (!parts.length) continue;
+      const judgment = parts.filter((p) => p.needsJudgment).map((p) => p.heading);
+      const f: Finding = {
+        id: newId(),
+        sessionId,
+        fieldKey: drafter.fieldKey,
+        value: joinParts(parts),
+        parts,
+        origin: 'ai',
+        status: 'pending',
+        confidence: null,
+        sourceSpan: null,
+        flags: [
+          { kind: 'requires_review', detail: `AI-written from the whole visit; read before signing${judgment.length ? `. Clinical judgment to confirm: ${judgment.join(', ')}` : ''}` },
+          ...validateNarrative(parts, visit),
+        ],
+      };
+      this.d.store.findings.put(f);
+      this.audit.record({ sessionId, actor: `ai:narrative:${drafter.name}`, action: 'ai.fill', entity: 'finding', entityId: f.id, before: null, after: f });
+      out.push(f);
+    }
+    return out;
+  }
+
   addGoal(sessionId: string, actor: string, g: Omit<Goal, 'id' | 'sessionId' | 'origin' | 'status' | 'flags' | 'confidence' | 'sourceSpan'>): Goal {
     this.editable(sessionId, actor);
     const rec: Goal = { ...g, id: newId(), sessionId, origin: 'clinician', status: 'confirmed', confidence: null, sourceSpan: null, flags: [] };
@@ -314,7 +382,7 @@ export class EvalAssistant {
     const layer = this.d.registry.get(s.discipline);
     const mts = this.d.registry.measureTypes(s.discipline);
     const rank = (fl: ReviewFlag[]) =>
-      Math.min(...fl.map((f) => ({ conflict: 0, out_of_range: 1, assumed_from_context: 2, low_confidence: 3 })[f.kind]));
+      Math.min(...fl.map((f) => ({ conflict: 0, unsupported_claim: 0, out_of_range: 1, assumed_from_context: 2, low_confidence: 3, requires_review: 3 })[f.kind]));
     const entries: Array<QueueEntry & { r: number }> = [];
     const src = (i: Item) => i.sourceSpan?.text ?? null;
     for (const f of this.findings(sessionId).filter(needsConfirmation))
@@ -546,6 +614,14 @@ export interface Rate {
   accepted: number;
   total: number;
   rate: number;
+}
+
+function ageOn(dob: string, now: Date): number | null {
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  let age = now.getUTCFullYear() - d.getUTCFullYear();
+  if (now.getUTCMonth() < d.getUTCMonth() || (now.getUTCMonth() === d.getUTCMonth() && now.getUTCDate() < d.getUTCDate())) age--;
+  return age;
 }
 
 function prov(i: Item): NoteLine['provenance'] {

@@ -1,4 +1,6 @@
 import type { DisciplineLayer, Extractor } from '../../core/discipline.js';
+import type { LlmClient } from '../../core/providers.js';
+import { LlmAssessmentDrafter, RuleAssessmentDrafter } from './assessment.js';
 import type { Measurement, MeasureType } from '../../core/types.js';
 import { fmtGrade, PT_GOAL_PATTERNS } from './goals.js';
 import { PT_FIELDS, PT_MEASURE_TYPES } from './measureTypes.js';
@@ -51,7 +53,14 @@ export const ptLayer: DisciplineLayer = {
   defaultTemplateId: 'pt.general_ortho',
   extractors: [ptRuleExtractor],
   goalPatterns: PT_GOAL_PATTERNS,
+  // Rule-based until an AI vendor is approved; see withAiAssessment().
+  narrativeDrafters: [new RuleAssessmentDrafter()],
   goalTimeframes: { shortWeeks: 4, longWeeks: 8 },
   extractionPrompt,
   formatMeasurement,
 };
+
+/** The PT layer with the assessment written by an approved LLM. */
+export function withAiAssessment(client: LlmClient): DisciplineLayer {
+  return { ...ptLayer, narrativeDrafters: [new LlmAssessmentDrafter(client)] };
+}

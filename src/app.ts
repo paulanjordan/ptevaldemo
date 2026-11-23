@@ -14,6 +14,7 @@ export const MVP_FLAGS: FlagName[] = [
   'eval_assistant.capture',
   'eval_assistant.extraction',
   'eval_assistant.goals',
+  'eval_assistant.narratives',
 ];
 
 export function createRegistry(): DisciplineRegistry {

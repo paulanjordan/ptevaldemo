@@ -5,6 +5,7 @@ export type FlagName =
   | 'eval_assistant.capture'  // M2 recording
   | 'eval_assistant.extraction' // M3
   | 'eval_assistant.goals'    // M4 goal generator
+  | 'eval_assistant.narratives' // AI-drafted assessment
   | 'eval_assistant.live';    // post-MVP live drafting
 
 export interface FeatureFlags {
