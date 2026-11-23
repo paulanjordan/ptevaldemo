@@ -1,0 +1,808 @@
+<title>PT Eval Assistant</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: EMR-style app shell. Fixed patient banner + step bar, then one working
+   surface per step. Review = note column + "needs you" rail + sticky sign bar. */
+:root {
+  --bg: #f3f5f6;
+  --surface: #ffffff;
+  --surface-2: #eaeef0;
+  --line: #d5dde1;
+  --ink: #15242b;
+  --ink-2: #4b5d66;
+  --ink-3: #6f8089;
+  --accent: #0b6e69;        /* teal: primary actions */
+  --accent-ink: #ffffff;
+  --accent-soft: #dcefed;
+  --ai: #5b4bb7;            /* AI-drafted marker */
+  --ai-soft: #ebe8fa;
+  --pt: #2f6a2f;            /* clinician-entered marker */
+  --pt-soft: #e2f0df;
+  --warn: #8a5a00;
+  --warn-soft: #fbefd5;
+  --bad: #a3271f;
+  --bad-soft: #fbe3e0;
+  --rec: #c62f24;
+  --shadow: 0 1px 2px rgba(21,36,43,.06), 0 4px 16px rgba(21,36,43,.06);
+  --font-ui: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f171b; --surface: #16232a; --surface-2: #1d2d35; --line: #2c3f48;
+  --ink: #e4ecef; --ink-2: #a9bac2; --ink-3: #8597a0;
+  --accent: #3fb3aa; --accent-ink: #062523; --accent-soft: #163a38;
+  --ai: #a99cf2; --ai-soft: #29254a; --pt: #8fcf86; --pt-soft: #1e3520;
+  --warn: #f0c26a; --warn-soft: #3a2e14; --bad: #f19a92; --bad-soft: #43201d; --rec: #ff6b5f;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0f171b; --surface: #16232a; --surface-2: #1d2d35; --line: #2c3f48;
+  --ink: #e4ecef; --ink-2: #a9bac2; --ink-3: #8597a0;
+  --accent: #3fb3aa; --accent-ink: #062523; --accent-soft: #163a38;
+  --ai: #a99cf2; --ai-soft: #29254a; --pt: #8fcf86; --pt-soft: #1e3520;
+  --warn: #f0c26a; --warn-soft: #3a2e14; --bad: #f19a92; --bad-soft: #43201d; --rec: #ff6b5f;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px; line-height: 1.45; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--surface); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.2; }
+.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1240px; margin: 0 auto; }
+
+/* ---------- shell ---------- */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-block: 10px; }
+.who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.who strong { font-size: 17px; }
+.who span { color: var(--ink-2); font-size: 13px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; letter-spacing: .01em; }
+.chip.caution { background: var(--warn-soft); color: var(--warn); }
+.chip.synthetic { background: var(--surface-2); color: var(--ink-2); }
+.banner .spacer { flex: 1; }
+.steps { display: flex; gap: 4px; overflow-x: auto; padding-block: 0 8px; }
+.step { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; color: var(--ink-3); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.step .n { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid currentColor; font-size: 12px; }
+.step.done { color: var(--accent); }
+.step.done .n { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.step.current { color: var(--ink); background: var(--surface-2); }
+.step:hover { color: var(--ink); }
+.proto-note { margin-left: auto; align-self: center; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+
+main { padding-block: 24px 140px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 9px 14px; border-radius: 8px; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.primary:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--surface-2); color: var(--ink); }
+.btn.sm { min-height: 32px; padding: 5px 10px; font-size: 13px; }
+.btn.danger { color: var(--bad); }
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+
+/* ---------- appointment ---------- */
+.appt { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+.appt-head { padding: 20px 24px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+.appt-head h1 { font-size: 24px; }
+.appt-head .time { font-size: 28px; font-weight: 500; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); border-top: 1px solid var(--line); }
+.fact { padding: 14px 24px; border-bottom: 1px solid var(--line); min-width: 0; }
+.fact dt { font-size: 12px; color: var(--ink-3); font-weight: 600; margin-bottom: 2px; }
+.fact dd { margin: 0; }
+.start { padding: 20px 24px; display: grid; gap: 14px; }
+.start .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.start label { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+select.input, input.input, textarea.input { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; min-height: 40px; }
+textarea.input { width: 100%; min-height: 72px; resize: vertical; line-height: 1.45; }
+.consent { border: 2px solid var(--accent); border-radius: var(--r); padding: 18px; display: grid; gap: 12px; background: var(--accent-soft); }
+.consent p { margin: 0; color: var(--ink-2); max-width: 60ch; }
+.consent .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.consent .opt { padding: 14px; text-align: left; display: grid; gap: 2px; justify-items: start; min-height: 64px; }
+.consent .opt small { font-weight: 400; color: inherit; opacity: .85; }
+
+/* ---------- recording ---------- */
+.rec { max-width: 620px; margin: 0 auto; text-align: center; padding: 36px 24px; display: grid; gap: 20px; justify-items: center; }
+.rec-status { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; color: var(--rec); }
+.rec-status .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; animation: pulse 1.4s ease-in-out infinite; }
+.rec.paused .rec-status { color: var(--warn); }
+.rec.paused .rec-status .dot { animation: none; }
+.timer { font-family: var(--font-data); font-size: clamp(48px, 12vw, 72px); font-weight: 500; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.meter { display: flex; gap: 4px; align-items: center; height: 44px; }
+.meter i { width: 5px; border-radius: 3px; background: var(--accent); height: 30%; animation: lvl 1.1s ease-in-out infinite; }
+.rec.paused .meter i { animation-play-state: paused; opacity: .3; }
+.controls { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.controls .btn { min-width: 140px; min-height: 52px; font-size: 16px; }
+.btn.stop { background: var(--rec); border-color: var(--rec); color: #fff; }
+.rec-meta { display: grid; gap: 6px; color: var(--ink-2); font-size: 14px; max-width: 46ch; }
+.hidden-note { display: flex; gap: 10px; align-items: flex-start; text-align: left; background: var(--surface-2); border-radius: var(--r); padding: 12px 14px; color: var(--ink-2); font-size: 14px; }
+.hidden-note svg { flex: none; margin-top: 2px; }
+@keyframes pulse { 50% { opacity: .35; } }
+@keyframes lvl { 0%,100% { height: 25%; } 50% { height: 90%; } }
+
+/* ---------- processing ---------- */
+.proc { max-width: 520px; margin: 40px auto; padding: 28px; display: grid; gap: 14px; }
+.proc li { display: flex; gap: 10px; align-items: center; color: var(--ink-3); }
+.proc li.done { color: var(--ink); }
+.proc li.active { color: var(--ink); font-weight: 600; }
+.proc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.tick { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; flex: none; }
+.proc li.done .tick { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.proc li.active .tick { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- review ---------- */
+.review { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.toolbar h1 { font-size: 20px; margin-right: auto; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-bottom: 14px; }
+.prov { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; letter-spacing: .03em; white-space: nowrap; }
+.prov.ai { background: var(--ai-soft); color: var(--ai); }
+.prov.ai_edited { background: var(--ai-soft); color: var(--ai); box-shadow: inset 0 0 0 1px var(--ai); }
+.prov.clinician { background: var(--pt-soft); color: var(--pt); }
+.note { overflow: hidden; }
+.sec { border-bottom: 1px solid var(--line); }
+.sec:last-child { border-bottom: 0; }
+.sec > h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); padding: 14px 18px 6px; display: flex; gap: 8px; align-items: center; }
+.sec > h2 small { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--ink-3); }
+.line { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 4px 14px; padding: 9px 18px; align-items: start; border-left: 3px solid transparent; }
+.line:hover { background: var(--surface-2); }
+.line.flagged { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn-soft) 55%, transparent); }
+.line.conflict { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad-soft) 55%, transparent); }
+.line.missing { border-left-color: var(--line); }
+.line .lbl { color: var(--ink-2); font-size: 13px; padding-top: 2px; }
+.line .val { min-width: 0; overflow-wrap: anywhere; }
+.line .val.measure { font-family: var(--font-data); font-size: 14px; }
+.line .meta { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.line .missing-text { color: var(--ink-3); font-style: italic; }
+.iconbtn { border: 0; background: transparent; width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; color: var(--ink-3); }
+.iconbtn:hover, .iconbtn[aria-expanded="true"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.editor { grid-column: 1 / -1; display: grid; gap: 8px; padding: 6px 0 4px; }
+.editor .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.editor .err { color: var(--bad); font-size: 13px; }
+.source { grid-column: 1 / -1; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; display: grid; gap: 4px; }
+.source q { quotes: "\201C" "\201D"; }
+.source .who-said { font-size: 12px; color: var(--ink-3); }
+.goal-actions { grid-column: 2 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.goal-text { line-height: 1.5; }
+.goal-links { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+.rejected { opacity: .5; }
+.rejected .val { text-decoration: line-through; }
+
+.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 112px); display: grid; gap: 16px; max-height: calc(100vh - 140px); overflow: auto; padding-bottom: 8px; }
+.panel { padding: 16px; display: grid; gap: 12px; }
+.panel h2 { font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.count { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--warn-soft); color: var(--warn); }
+.count.zero { background: var(--pt-soft); color: var(--pt); }
+.qitem { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 8px; background: var(--surface); }
+.qitem.conflict { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+.qitem .what { font-weight: 600; }
+.qitem .what.measure { font-family: var(--font-data); font-weight: 500; }
+.qitem .why { font-size: 13px; color: var(--ink-2); }
+.qitem .why b { color: var(--warn); }
+.qitem.conflict .why b { color: var(--bad); }
+.qitem q { font-size: 13px; color: var(--ink-2); quotes: "\201C" "\201D"; }
+.qitem .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pick .btn { flex-direction: column; gap: 0; min-height: 56px; }
+.pick .btn small { font-weight: 400; color: var(--ink-3); font-size: 12px; }
+.empty-ok { color: var(--pt); font-size: 14px; display: flex; gap: 6px; align-items: center; }
+.miss { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 14px; }
+
+.signbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgba(0,0,0,.06); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.signbar .wrap { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding-block: 12px; }
+.blockers { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; color: var(--ink-2); margin-right: auto; }
+.blockers .b { display: inline-flex; gap: 6px; align-items: center; }
+.blockers .b::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.blockers .b.ok::before { background: var(--pt); }
+.ack { display: inline-flex; gap: 8px; align-items: center; font-size: 14px; }
+.ack input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* ---------- body diagram ---------- */
+.overlay { position: fixed; inset: 0; z-index: 40; background: rgba(10,20,25,.45); display: grid; place-items: center; padding: 16px; }
+.dialog { width: min(760px, 100%); max-height: 92vh; overflow: auto; padding: 20px; display: grid; gap: 16px; }
+.dialog header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.dialog h2 { font-size: 18px; }
+.diagram-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: start; }
+.body-svg { width: 100%; max-width: 220px; height: auto; display: block; margin: 0 auto; }
+.body-svg .shape { fill: var(--surface-2); stroke: var(--line); stroke-width: 2; }
+.body-svg .joint { fill: var(--surface); stroke: var(--accent); stroke-width: 2.5; cursor: pointer; }
+.body-svg .joint:hover { fill: var(--accent-soft); }
+.body-svg .joint.sel { fill: var(--accent); }
+.body-svg .side-lbl { fill: var(--ink-3); font: 600 11px var(--font-ui); }
+.form-grid { display: grid; gap: 12px; }
+.form-grid .f { display: grid; gap: 4px; }
+.form-grid label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.seg button { border: 0; background: var(--surface); padding: 8px 12px; min-height: 38px; font-weight: 600; font-size: 14px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.hint { font-size: 13px; color: var(--ink-3); }
+
+/* ---------- signed ---------- */
+.signed { max-width: 640px; margin: 0 auto; padding: 28px; display: grid; gap: 18px; }
+.signed .big { display: flex; gap: 14px; align-items: center; }
+.signed .seal { width: 48px; height: 48px; border-radius: 50%; background: var(--pt-soft); color: var(--pt); display: grid; place-items: center; flex: none; }
+.signed ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.signed li { display: flex; gap: 10px; align-items: baseline; }
+.signed li .mono { min-width: 3ch; text-align: right; font-weight: 500; }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); z-index: 50; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; box-shadow: var(--shadow); }
+
+@media (max-width: 980px) {
+  .review { grid-template-columns: 1fr; }
+  .rail { position: static; max-height: none; order: -1; }
+}
+@media (max-width: 620px) {
+  .line { grid-template-columns: 1fr auto; }
+  .line .lbl { grid-column: 1 / -1; padding-top: 0; }
+  .goal-actions { grid-column: 1 / -1; }
+  .diagram-grid { grid-template-columns: 1fr; }
+  .proto-note { display: none; }
+  .controls .btn { min-width: 0; flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="top">
+  <div class="gutter"><div class="wrap">
+    <div class="banner">
+      <div class="who"><strong>Test Patient</strong><span>F · DOB 02 Apr 1971 · 55 y</span><span class="chip synthetic">Synthetic test record</span></div>
+      <span class="chip caution" title="Precaution from chart">⚠ No impact activities</span>
+      <div class="spacer"></div>
+      <span class="who"><span>Initial eval · PT</span></span>
+    </div>
+    <nav class="steps" id="steps" aria-label="Eval steps"></nav>
+  </div></div>
+</div>
+
+<main class="gutter"><div class="wrap" id="app"></div></main>
+<div id="signbar-host"></div>
+<div id="overlay-host"></div>
+<div id="toast-host" aria-live="polite"></div>
+
+<script>
+const DATA = /*DATA*/null;
+
+// ------------------------------------------------------------------ state
+const STEPS = [
+  { id: 'appointment', label: 'Appointment' },
+  { id: 'record', label: 'Record' },
+  { id: 'review', label: 'Review' },
+  { id: 'signed', label: 'Signed' },
+];
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const S = {
+  step: 'appointment',
+  consent: null,
+  rec: { state: 'idle', ms: 0, timer: null },
+  templateId: DATA.session.templateId,
+  findings: clone(DATA.findings),
+  measurements: clone(DATA.measurements),
+  goals: clone(DATA.goals),
+  open: null,          // { kind:'edit'|'source', id }
+  ack: false,
+  consentOpen: false,
+  signedAt: null,
+};
+const fieldLabel = (k) => (DATA.fields.find((f) => f.key === k) || {}).label || k;
+const fieldKind = (k) => (DATA.fields.find((f) => f.key === k) || {}).valueKind;
+const tpl = () => DATA.templates.find((t) => t.id === S.templateId);
+const byId = (id) => S.findings.find((x) => x.id === id) || S.measurements.find((x) => x.id === id) || S.goals.find((x) => x.id === id);
+const kindOf = (id) => S.findings.some((x) => x.id === id) ? 'finding' : S.measurements.some((x) => x.id === id) ? 'measurement' : 'goal';
+const live = (xs) => xs.filter((x) => x.status !== 'rejected');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const mmss = (ms) => { const t = Math.floor(ms / 1000); return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+let uid = 0; const newId = () => `local-${++uid}`;
+
+// ------------------------------------------------------ PT display rules
+const SIDE = { right: 'R ', left: 'L ', bilateral: 'B ' };
+const fmtGrade = (v) => `${v.grade}${v.modifier || ''}/5`;
+function fmtMeasure(m) {
+  const side = SIDE[m.side] || '';
+  const mode = m.mode === 'active' ? ' AROM' : m.mode === 'passive' ? ' PROM' : '';
+  if (m.value.kind === 'number') return m.measureTypeId === 'pt.rom' ? `${side}${m.joint} ${m.motion}${mode} ${m.value.value}°` : `${m.value.value} ${m.unit || ''}`;
+  if (m.value.kind === 'grade') return `${side}${m.joint} ${m.motion} ${fmtGrade(m.value)}`;
+  if (m.value.kind === 'result') return `${side}${m.motion}: ${m.value.result}`;
+  return m.value.text;
+}
+const ROM = { 'knee|flexion': [0, 160], 'knee|extension': [-60, 20], 'hip|flexion': [0, 145], 'hip|extension': [-30, 45], 'hip|abduction': [0, 70], 'hip|internal rotation': [0, 70], 'hip|external rotation': [0, 80], 'ankle|dorsiflexion': [-30, 45], 'ankle|plantarflexion': [0, 80], 'shoulder|flexion': [0, 190], 'shoulder|abduction': [0, 190], 'shoulder|external rotation': [-20, 120], 'shoulder|internal rotation': [0, 100], 'elbow|flexion': [0, 165], 'elbow|extension': [-60, 20], 'lumbar|flexion': [0, 110], 'lumbar|extension': [0, 50], 'cervical|rotation': [0, 100] };
+const MOTIONS = { knee: ['flexion', 'extension'], hip: ['flexion', 'extension', 'abduction', 'internal rotation', 'external rotation'], ankle: ['dorsiflexion', 'plantarflexion'], shoulder: ['flexion', 'abduction', 'internal rotation', 'external rotation'], elbow: ['flexion', 'extension'], lumbar: ['flexion', 'extension'], cervical: ['rotation'] };
+const GRADES = ['0', '1', '2-', '2', '2+', '3-', '3', '3+', '4-', '4', '4+', '5'];
+const parseGrade = (g) => ({ grade: Number(g[0]), modifier: g[1] || null });
+
+function flagText(f) {
+  if (f.kind === 'conflict') return '<b>Two values recorded.</b> Keep one.';
+  if (f.kind === 'out_of_range') return `<b>Outside plausible range.</b> ${esc(f.detail)}`;
+  if (f.kind === 'assumed_from_context') return `<b>Assumed.</b> ${esc(f.detail.charAt(0).toUpperCase() + f.detail.slice(1))}`;
+  const m = /confidence ([\d.]+)(?::\s*(.*))?/.exec(f.detail || '');
+  const why = m && m[2] ? m[2].split('; ').map((s) => s.replace('from earlier sentence', 'carried from an earlier sentence')).join(', ') : '';
+  return `<b>Lower confidence${m ? ` (${m[1]})` : ''}.</b> ${why ? esc(why.charAt(0).toUpperCase() + why.slice(1)) : 'Check the wording against what was said.'}`;
+}
+const needsReview = (x) => x.status === 'pending' && x.flags && x.flags.length > 0;
+const prov = (x) => x.origin === 'clinician' ? 'clinician' : x.status === 'edited' ? 'ai_edited' : 'ai';
+const PROV_LABEL = { ai: 'AI', ai_edited: 'AI · edited', clinician: 'PT' };
+function itemText(x) {
+  if (x.term) return x.text;
+  if (x.measureTypeId) return fmtMeasure(x);
+  return Array.isArray(x.value) ? x.value.join('; ') : String(x.value);
+}
+function matchesField(m, f) {
+  if (f.kind !== 'measures' || !f.measureTypeIds.includes(m.measureTypeId)) return false;
+  return !(f.joints && f.joints.length) || f.joints.includes(m.joint) || f.joints.includes(m.bodyRegion);
+}
+
+// ----------------------------------------------------------------- icons
+const I = {
+  quote: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7h4v4c0 3-2 5-4 5M14 7h4v4c0 3-2 5-4 5"/></svg>',
+  edit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>',
+  x: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
+  eyeOff: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 8.5 4.2 9.5 6-.4.8-1.3 2.1-2.6 3.3M6.4 7.4C4.4 8.7 3 10.7 2.5 12c1 1.8 4.5 6 9.5 6 1.6 0 3-.4 4.3-1"/></svg>',
+  plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+};
+
+// ---------------------------------------------------------------- render
+const $ = (sel) => document.querySelector(sel);
+function render() {
+  renderSteps();
+  const app = $('#app');
+  app.innerHTML = { appointment: viewAppointment, record: viewRecord, processing: viewProcessing, review: viewReview, signed: viewSigned }[S.step]();
+  $('#signbar-host').innerHTML = S.step === 'review' ? viewSignbar() : '';
+}
+function renderSteps() {
+  const order = STEPS.map((s) => s.id);
+  const cur = order.indexOf(S.step === 'processing' ? 'review' : S.step);
+  $('#steps').innerHTML = STEPS.map((s, i) => `<button class="step ${i < cur ? 'done' : ''} ${i === cur ? 'current' : ''}" data-go="${s.id}" ${i === cur ? 'aria-current="step"' : ''}><span class="n">${i < cur ? I.check : i + 1}</span>${s.label}</button>`).join('') +
+    '<span class="proto-note">Prototype: tap a step to jump</span>';
+}
+
+function viewAppointment() {
+  const c = DATA.session.context;
+  return `<div class="appt">
+    <section class="card">
+      <div class="appt-head">
+        <div><div class="eyebrow">Today · Initial evaluation</div><h1>Test Patient</h1></div>
+        <div class="time mono">3:00 PM</div>
+      </div>
+      <dl class="facts" style="margin:0">
+        <div class="fact"><dt>Referral diagnosis</dt><dd><span class="mono">${esc(c.referral.diagnosisCode)}</span> ${esc(c.referral.diagnosisText)}</dd></div>
+        <div class="fact"><dt>Referring provider</dt><dd>${esc(c.referral.referringProvider)}</dd></div>
+        <div class="fact"><dt>Precautions</dt><dd>${c.precautions.map(esc).join(', ')}</dd></div>
+        <div class="fact"><dt>Surgical history</dt><dd>${c.surgicalHistory.map(esc).join(', ')}</dd></div>
+      </dl>
+      <div class="start">
+        <div class="row">
+          <label for="tpl-start">Eval template</label>
+          <select id="tpl-start" class="input" data-action="template">${DATA.templates.map((t) => `<option value="${t.id}" ${t.id === S.templateId ? 'selected' : ''}>${esc(t.name)}${t.id === DATA.session.templateId ? ' (suggested from referral)' : ''}</option>`).join('')}</select>
+        </div>
+        ${S.consentOpen ? `<div class="consent" role="group" aria-labelledby="consent-h">
+            <h2 id="consent-h" style="font-size:17px">Patient consent to record</h2>
+            <p>Ask the patient if this visit may be recorded to help write the note. Audio is deleted when you sign. Recording starts as soon as you record consent.</p>
+            <div class="opts">
+              <button class="btn primary opt" data-action="consent" data-type="verbal">Verbal consent<small>Patient agreed out loud</small></button>
+              <button class="btn opt" data-action="consent" data-type="signed">Signed consent<small>Signed form on file</small></button>
+            </div>
+            <div><button class="btn ghost sm" data-action="consent-cancel">Patient declined · document without recording</button></div>
+          </div>`
+        : `<div class="row"><button class="btn primary" data-action="start" style="min-height:48px;padding-inline:20px">Start eval assistant</button><span class="hint">Patient, visit and referral are linked automatically.</span></div>`}
+      </div>
+    </section>
+  </div>`;
+}
+
+function viewRecord() {
+  const r = S.rec;
+  const paused = r.state === 'paused';
+  return `<section class="card rec ${paused ? 'paused' : ''}">
+    <div class="rec-status" role="status"><span class="dot"></span>${paused ? 'Paused · not recording' : 'Recording'}</div>
+    <div class="timer" id="timer" aria-label="Elapsed time">${mmss(r.ms)}</div>
+    <div class="meter" aria-hidden="true">${Array.from({ length: 18 }, (_, i) => `<i style="animation-delay:${(i * 0.13) % 1.1}s"></i>`).join('')}</div>
+    <div class="controls">
+      ${paused ? '<button class="btn primary" data-action="resume">Resume</button>' : '<button class="btn" data-action="pause">Pause</button>'}
+      <button class="btn stop" data-action="stop">Stop and draft note</button>
+    </div>
+    <div class="hidden-note">${I.eyeOff}<span>The transcript is hidden. Talk with your patient as usual; your note is drafted after you stop. Paused audio is never captured.</span></div>
+    <div class="rec-meta">
+      <span>Consent: ${esc(S.consent.type)} · recorded ${esc(S.consent.at)}</span>
+      <span>Template: ${esc(tpl().name)} · Audio is saved on this device, encrypted, until it uploads.</span>
+    </div>
+  </section>`;
+}
+
+const PROC_STEPS = ['Uploading audio', 'Transcribing (stays hidden)', 'Extracting findings and measures', 'Filling the template', 'Drafting goals'];
+function viewProcessing() {
+  return `<section class="card proc" aria-live="polite">
+    <div class="eyebrow">Session ended · ${mmss(S.rec.ms || DATA.session.durationMs)}</div>
+    <h1 style="font-size:20px">Drafting your note</h1>
+    <ol>${PROC_STEPS.map((p, i) => `<li class="${i < S.procStep ? 'done' : i === S.procStep ? 'active' : ''}"><span class="tick">${i < S.procStep ? I.check : ''}</span>${p}</li>`).join('')}</ol>
+  </section>`;
+}
+
+function counts() {
+  const queue = [...S.findings, ...S.measurements].filter(needsReview);
+  const goals = S.goals.filter((g) => g.status === 'pending');
+  const missing = missingFields();
+  return { queue, goals, missing };
+}
+function missingFields() {
+  const out = [];
+  for (const sec of tpl().sections) for (const f of sec.fields) {
+    if (!f.required) continue;
+    const ok = f.kind === 'finding' ? live(S.findings).some((x) => x.fieldKey === f.key) : live(S.measurements).some((m) => matchesField(m, f));
+    if (!ok) out.push({ ...f, section: sec.title });
+  }
+  return out;
+}
+
+function lineHtml(x, label, opts = {}) {
+  const k = kindOf(x.id);
+  const flagged = needsReview(x);
+  const conflict = flagged && x.flags.some((f) => f.kind === 'conflict');
+  const open = S.open && S.open.id === x.id ? S.open.kind : null;
+  const isMeasure = k === 'measurement';
+  const acts = x.status === 'rejected'
+    ? `<button class="btn ghost sm" data-action="restore" data-id="${x.id}">Restore</button>`
+    : `${x.sourceSpan ? `<button class="iconbtn" data-action="source" data-id="${x.id}" aria-expanded="${open === 'source'}" aria-label="Show what was said">${I.quote}</button>` : ''}
+       <button class="iconbtn" data-action="edit" data-id="${x.id}" aria-expanded="${open === 'edit'}" aria-label="Edit">${I.edit}</button>
+       <button class="iconbtn" data-action="reject" data-id="${x.id}" aria-label="Remove from note">${I.x}</button>`;
+  return `<div class="line ${flagged ? (conflict ? 'conflict' : 'flagged') : ''} ${x.status === 'rejected' ? 'rejected' : ''}" id="row-${x.id}">
+    <div class="lbl">${esc(label)}</div>
+    <div class="val ${isMeasure ? 'measure' : ''}">${esc(itemText(x))}${opts.extra || ''}</div>
+    <div class="meta">${flagged ? `<span class="prov" style="background:var(${conflict ? '--bad-soft' : '--warn-soft'});color:var(${conflict ? '--bad' : '--warn'})">Review</span>` : ''}<span class="prov ${prov(x)}">${PROV_LABEL[prov(x)]}</span>${acts}</div>
+    ${open === 'source' ? sourceHtml(x) : ''}
+    ${open === 'edit' ? editorHtml(x) : ''}
+  </div>`;
+}
+function sourceHtml(x) {
+  const who = x.at ? (x.at.speaker === 'patient' ? 'Patient' : 'You') : '';
+  return `<div class="source"><span class="who-said">${who} · ${x.at ? mmss(x.at.ms) : ''} into the session</span><q>${esc(x.sourceSpan.text)}</q></div>`;
+}
+function editorHtml(x) {
+  const k = kindOf(x.id);
+  let field = '';
+  if (k === 'goal') field = `<textarea class="input" id="ed-${x.id}" aria-label="Goal text">${esc(x.text)}</textarea>`;
+  else if (k === 'finding') field = fieldKind(x.fieldKey) === 'number'
+    ? `<input class="input mono" type="number" min="0" max="10" id="ed-${x.id}" value="${esc(x.value)}" aria-label="${esc(fieldLabel(x.fieldKey))}"> <span class="hint">/ 10</span>`
+    : `<textarea class="input" id="ed-${x.id}" aria-label="${esc(fieldLabel(x.fieldKey))}">${esc(x.value)}</textarea>`;
+  else if (x.value.kind === 'number') field = `<input class="input mono" type="number" id="ed-${x.id}" value="${x.value.value}" style="width:110px" aria-label="Value in degrees"> <span class="hint">°</span>
+      <div class="seg" role="group" aria-label="Side">${['left', 'right', 'bilateral'].map((s) => `<button type="button" data-action="ed-side" data-id="${x.id}" data-v="${s}" aria-pressed="${(S.draftSide || x.side) === s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join('')}</div>
+      <div class="seg" role="group" aria-label="Active or passive">${['active', 'passive'].map((s) => `<button type="button" data-action="ed-mode" data-id="${x.id}" data-v="${s}" aria-pressed="${(S.draftMode || x.mode) === s}">${s === 'active' ? 'AROM' : 'PROM'}</button>`).join('')}</div>`;
+  else if (x.value.kind === 'grade') field = `<select class="input mono" id="ed-${x.id}" aria-label="Grade">${GRADES.map((g) => `<option ${fmtGrade(parseGrade(g)) === fmtGrade(x.value) ? 'selected' : ''} value="${g}">${g}/5</option>`).join('')}</select>`;
+  else if (x.value.kind === 'result') field = `<select class="input" id="ed-${x.id}" aria-label="Result">${['positive', 'negative', 'equivocal'].map((r) => `<option ${r === x.value.result ? 'selected' : ''}>${r}</option>`).join('')}</select>`;
+  return `<div class="editor"><div class="row">${field}</div><div class="err" id="err-${x.id}" role="alert"></div>
+    <div class="row"><button class="btn primary sm" data-action="save" data-id="${x.id}">Save</button><button class="btn ghost sm" data-action="close">Cancel</button></div></div>`;
+}
+
+function missingLineHtml(f) {
+  const open = S.open && S.open.id === `miss-${f.key}`;
+  if (f.kind === 'measures') return `<div class="line missing"><div class="lbl">${esc(f.label)}</div><div class="val missing-text">Required · not recorded</div><div class="meta"><button class="btn sm" data-action="diagram">${I.plus} Add</button></div></div>`;
+  return `<div class="line missing" id="row-miss-${f.key}"><div class="lbl">${esc(f.label)}</div><div class="val missing-text">Required · not mentioned in the session</div>
+    <div class="meta"><button class="btn sm" data-action="write" data-key="${f.key}">${I.plus} Write</button></div>
+    ${open ? `<div class="editor"><textarea class="input" id="ed-miss-${f.key}" aria-label="${esc(f.label)}" placeholder="Type or dictate"></textarea>
+      <div class="row"><button class="btn primary sm" data-action="save-new" data-key="${f.key}">Save</button><button class="btn ghost sm" data-action="close">Cancel</button></div></div>` : ''}
+  </div>`;
+}
+
+function goalHtml(g) {
+  const ms = g.baselineMeasurementIds.map((id) => S.measurements.find((m) => m.id === id)).filter(Boolean);
+  const links = [...ms.map((m) => `baseline ${fmtMeasure(m)}`), ...g.baselineFindingKeys.map((k) => fieldLabel(k).toLowerCase())];
+  const extra = `<div class="goal-links">Linked to: ${esc(links.join(' · ') || 'none')}</div>`;
+  const label = g.term === 'short' ? `STG · ${g.timeframeWeeks} wk` : `LTG · ${g.timeframeWeeks} wk`;
+  if (g.status !== 'pending') return lineHtml(g, label, { extra });
+  const open = S.open && S.open.id === g.id && S.open.kind === 'edit';
+  return `<div class="line flagged" id="row-${g.id}">
+    <div class="lbl">${label}</div>
+    <div class="val"><div class="goal-text">${esc(g.text)}</div>${extra}</div>
+    <div class="meta"><span class="prov ai">AI draft</span></div>
+    <div class="goal-actions">
+      <button class="btn sm primary" data-action="confirm" data-id="${g.id}">Accept</button>
+      <button class="btn sm" data-action="edit" data-id="${g.id}">Edit</button>
+      <button class="btn sm ghost danger" data-action="reject" data-id="${g.id}">Reject</button>
+    </div>
+    ${open ? editorHtml(g) : ''}
+  </div>`;
+}
+
+function viewReview() {
+  const t = tpl();
+  const usedF = new Set(), usedM = new Set();
+  const missing = new Set(missingFields().map((f) => f.key));
+  let secs = '';
+  for (const sec of t.sections) {
+    let rows = '';
+    for (const f of sec.fields) {
+      if (f.kind === 'finding') {
+        const xs = S.findings.filter((x) => x.fieldKey === f.key);
+        xs.forEach((x) => { usedF.add(x.id); rows += lineHtml(x, f.label); });
+      } else {
+        const xs = S.measurements.filter((m) => matchesField(m, f) && !usedM.has(m.id));
+        xs.forEach((m) => { usedM.add(m.id); rows += lineHtml(m, f.label); });
+      }
+      if (missing.has(f.key)) rows += missingLineHtml(f);
+    }
+    if (rows) secs += `<section class="sec"><h2>${esc(sec.title)}</h2>${rows}</section>`;
+  }
+  const other = [...S.findings.filter((x) => !usedF.has(x.id)).map((x) => lineHtml(x, fieldLabel(x.fieldKey))), ...S.measurements.filter((m) => !usedM.has(m.id)).map((m) => lineHtml(m, m.measureTypeId === 'pt.special_test' ? 'Special test' : m.measureTypeId === 'pt.mmt' ? 'Strength' : 'ROM'))];
+  if (other.length) secs += `<section class="sec"><h2>Other findings <small>No slot in the ${esc(t.name)} template; kept in the note</small></h2>${other.join('')}</section>`;
+  for (const term of ['short', 'long']) {
+    const gs = S.goals.filter((g) => g.term === term);
+    if (gs.length) secs += `<section class="sec"><h2>${term === 'short' ? 'Short-term goals' : 'Long-term goals'}</h2>${gs.map(goalHtml).join('')}</section>`;
+  }
+  return `<div class="toolbar">
+      <h1>Initial evaluation note</h1>
+      <label for="tpl-review" class="hint">Template</label>
+      <select id="tpl-review" class="input" data-action="template">${DATA.templates.map((x) => `<option value="${x.id}" ${x.id === S.templateId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
+      <button class="btn" data-action="diagram">${I.plus} Add measurement</button>
+    </div>
+    <div class="review">
+      <div>
+        <div class="legend"><span><span class="prov ai">AI</span> drafted from the session</span><span><span class="prov ai_edited">AI · edited</span> you changed it</span><span><span class="prov clinician">PT</span> you entered it</span><span>${I.quote.replace('width="18" height="18"', 'width="14" height="14" style="vertical-align:-2px"')} what was said</span></div>
+        <article class="card note">${secs}</article>
+      </div>
+      <aside class="rail">${railHtml()}</aside>
+    </div>`;
+}
+
+/** Flagged items grouped into decisions: a conflict pair is one decision. */
+function queueCards() {
+  const { queue } = counts();
+  const seen = new Set();
+  const cards = [];
+  for (const x of queue) {
+    if (seen.has(x.id)) continue;
+    const c = x.flags.find((f) => f.kind === 'conflict');
+    if (c) {
+      const others = c.withIds.map(byId).filter((o) => o && needsReview(o));
+      [x, ...others].forEach((o) => seen.add(o.id));
+      cards.push({ conflict: true, items: [x, ...others] });
+    } else { seen.add(x.id); cards.push({ conflict: false, items: [x] }); }
+  }
+  cards.sort((a, b) => (b.conflict - a.conflict));
+  return cards;
+}
+
+function railHtml() {
+  const { goals, missing } = counts();
+  const cards = queueCards();
+  const qHtml = cards.map((c) => {
+    const x = c.items[0];
+    const label = x.measureTypeId ? fmtMeasure(x) : `${fieldLabel(x.fieldKey)}: ${itemText(x)}`;
+    if (c.conflict) return `<div class="qitem conflict">
+        <div class="what measure">${esc(SIDE[x.side] || '')}${esc(x.joint)} ${esc(x.motion)}${x.mode === 'active' ? ' AROM' : x.mode === 'passive' ? ' PROM' : ''}</div>
+        <div class="why">${flagText(x.flags.find((f) => f.kind === 'conflict'))}</div>
+        <div class="pick">${c.items.map((o) => `<button class="btn" data-action="keep" data-id="${o.id}" data-others="${c.items.filter((y) => y !== o).map((y) => y.id).join(',')}"><span class="mono">${esc(o.value.value)}°</span><small>${o.at ? mmss(o.at.ms) : ''} · “${esc(o.sourceSpan.text.slice(0, 34))}${o.sourceSpan.text.length > 34 ? '…' : ''}”</small></button>`).join('')}</div>
+      </div>`;
+    return `<div class="qitem">
+        <div class="what ${x.measureTypeId ? 'measure' : ''}">${esc(label)}</div>
+        <div class="why">${x.flags.map(flagText).join('<br>')}</div>
+        ${x.sourceSpan ? `<q>${esc(x.sourceSpan.text)}</q>` : ''}
+        <div class="acts"><button class="btn sm primary" data-action="confirm" data-id="${x.id}">Confirm</button><button class="btn sm" data-action="edit" data-id="${x.id}" data-scroll="1">Edit</button><button class="btn sm ghost danger" data-action="reject" data-id="${x.id}">Remove</button></div>
+      </div>`;
+  }).join('');
+  return `<section class="card panel" aria-labelledby="q-h">
+      <h2 id="q-h">Needs your review <span class="count ${cards.length ? '' : 'zero'}">${cards.length}</span></h2>
+      ${cards.length ? qHtml : `<div class="empty-ok">${I.check} Everything flagged is resolved</div>`}
+    </section>
+    <section class="card panel" aria-labelledby="m-h">
+      <h2 id="m-h">Still empty <span class="count ${missing.length ? '' : 'zero'}">${missing.length}</span></h2>
+      ${missing.length ? missing.map((f) => `<div class="miss"><span>${esc(f.label)} <span class="hint">· ${esc(f.section)}</span></span>${f.kind === 'measures' ? `<button class="btn sm" data-action="diagram">Add</button>` : `<button class="btn sm" data-action="write" data-key="${f.key}" data-scroll="1">Write</button>`}</div>`).join('') : `<div class="empty-ok">${I.check} All required fields filled</div>`}
+    </section>
+    <section class="card panel" aria-labelledby="g-h">
+      <h2 id="g-h">Draft goals <span class="count ${goals.length ? '' : 'zero'}">${goals.length}</span></h2>
+      <div class="hint">${goals.length ? `${goals.length} of ${S.goals.filter((g) => g.origin === 'ai').length} still need accept, edit or reject. Each is linked to its baseline.` : 'All goals decided.'}</div>
+      ${goals.length ? `<div><button class="btn sm" data-action="goto-goals">Go to goals</button></div>` : ''}
+    </section>`;
+}
+
+function viewSignbar() {
+  const { goals, missing } = counts();
+  const queue = queueCards();
+  const blocked = queue.length > 0 || goals.length > 0;
+  const canSign = !blocked && (missing.length === 0 || S.ack);
+  return `<div class="signbar"><div class="gutter"><div class="wrap">
+    <div class="blockers">
+      <span class="b ${queue.length ? '' : 'ok'}">${queue.length ? `${queue.length} to review` : 'Review done'}</span>
+      <span class="b ${goals.length ? '' : 'ok'}">${goals.length ? `${goals.length} goals to decide` : 'Goals decided'}</span>
+      <span class="b ${missing.length ? '' : 'ok'}">${missing.length ? `${missing.length} required ${missing.length === 1 ? 'field' : 'fields'} empty` : 'Required fields filled'}</span>
+    </div>
+    ${!blocked && missing.length ? `<label class="ack"><input type="checkbox" id="ack" data-action="ack" ${S.ack ? 'checked' : ''}> Sign with empty required fields</label>` : ''}
+    <button class="btn primary" data-action="sign" ${canSign ? '' : 'disabled'} style="min-width:160px;min-height:46px">Sign note</button>
+  </div></div></div>`;
+}
+
+function viewSigned() {
+  const ms = live(S.measurements).length;
+  const gs = live(S.goals).length;
+  const fs = live(S.findings).length;
+  const edited = [...S.findings, ...S.measurements, ...S.goals].filter((x) => x.status === 'edited').length;
+  return `<section class="card signed">
+    <div class="big"><div class="seal">${I.check.replace(/14/g, '26')}</div><div><h1 style="font-size:22px">Note signed</h1><div class="hint">${esc(S.signedAt)} · Initial evaluation · ${esc(tpl().name)}</div></div></div>
+    <ul>
+      <li><span class="mono">${ms}</span> measurements saved to the chart as discrete fields</li>
+      <li><span class="mono">${fs}</span> subjective, assessment and plan entries saved to the note</li>
+      <li><span class="mono">${gs}</span> goals added to the plan of care, each linked to its baseline</li>
+      <li><span class="mono">${edited}</span> AI-drafted items you edited before signing</li>
+    </ul>
+    <div class="hidden-note">${I.eyeOff}<span>Session audio was deleted per your clinic's policy. The hidden transcript is kept so each item still shows what was said.</span></div>
+    <div><button class="btn" data-action="reset">Back to schedule</button></div>
+  </section>`;
+}
+
+// ---------------------------------------------------------------- body diagram
+function viewDiagram() {
+  const d = S.diag;
+  const J = [
+    ['shoulder', 'right', 62, 92], ['shoulder', 'left', 138, 92], ['elbow', 'right', 52, 150], ['elbow', 'left', 148, 150],
+    ['hip', 'right', 82, 196], ['hip', 'left', 118, 196], ['knee', 'right', 84, 278], ['knee', 'left', 116, 278],
+    ['ankle', 'right', 86, 352], ['ankle', 'left', 114, 352], ['cervical', null, 100, 70], ['lumbar', null, 100, 172],
+  ];
+  const motions = d.joint ? MOTIONS[d.joint] : [];
+  const range = d.joint && d.motion ? ROM[`${d.joint}|${d.motion}`] : null;
+  return `<div class="overlay" data-action="diag-bg"><div class="card dialog" role="dialog" aria-modal="true" aria-labelledby="dg-h">
+    <header><h2 id="dg-h">Add measurement</h2><button class="iconbtn" data-action="diag-close" aria-label="Close">${I.x}</button></header>
+    <div class="diagram-grid">
+      <svg class="body-svg" viewBox="0 0 200 380" role="group" aria-label="Body diagram, tap a joint">
+        <text class="side-lbl" x="20" y="16">R</text><text class="side-lbl" x="172" y="16">L</text>
+        <circle class="shape" cx="100" cy="40" r="24"/>
+        <rect class="shape" x="70" y="80" width="60" height="110" rx="22"/>
+        <rect class="shape" x="44" y="86" width="20" height="100" rx="10"/>
+        <rect class="shape" x="136" y="86" width="20" height="100" rx="10"/>
+        <rect class="shape" x="74" y="186" width="22" height="176" rx="11"/>
+        <rect class="shape" x="104" y="186" width="22" height="176" rx="11"/>
+        ${J.map(([j, s, x, y]) => `<circle class="joint ${d.joint === j && d.side === s ? 'sel' : ''}" cx="${x}" cy="${y}" r="9" tabindex="0" role="button" aria-label="${s ? s + ' ' : ''}${j}" aria-pressed="${d.joint === j && d.side === s}" data-action="joint" data-j="${j}" data-s="${s || ''}"/>`).join('')}
+      </svg>
+      <div class="form-grid">
+        <div class="hint">${d.joint ? `Selected: <b>${d.side ? d.side + ' ' : ''}${d.joint}</b>` : 'Tap a joint on the diagram. R and L are the patient’s right and left.'}</div>
+        ${d.joint ? `
+        <div class="f"><label>Measure</label><div class="seg" role="group">${[['rom', 'ROM'], ['mmt', 'Strength (MMT)']].map(([v, l]) => `<button type="button" data-action="diag-set" data-k="type" data-v="${v}" aria-pressed="${d.type === v}">${l}</button>`).join('')}</div></div>
+        <div class="f"><label>Motion</label><div class="seg" role="group">${motions.map((m) => `<button type="button" data-action="diag-set" data-k="motion" data-v="${m}" aria-pressed="${d.motion === m}">${m}</button>`).join('')}</div></div>
+        ${d.type === 'rom' ? `<div class="f"><label>Mode</label><div class="seg" role="group">${[['active', 'AROM'], ['passive', 'PROM']].map(([v, l]) => `<button type="button" data-action="diag-set" data-k="mode" data-v="${v}" aria-pressed="${d.mode === v}">${l}</button>`).join('')}</div></div>
+        <div class="f"><label for="dg-val">Degrees</label><input class="input mono" id="dg-val" type="number" inputmode="numeric" value="${d.value ?? ''}" style="width:120px"><span class="hint">${range ? `Plausible range ${range[0]}° to ${range[1]}°` : ''}</span></div>`
+        : `<div class="f"><label for="dg-grade">Grade</label><select class="input mono" id="dg-grade" style="width:120px">${GRADES.map((g) => `<option value="${g}" ${g === '4' ? 'selected' : ''}>${g}/5</option>`).join('')}</select></div>`}
+        <div class="err" id="dg-err" role="alert" style="color:var(--bad);font-size:13px"></div>
+        <div class="row" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-action="diag-save">Save to note</button><button class="btn ghost" data-action="diag-close">Cancel</button></div>
+        <div class="hint">You can also dictate it, for example “right knee flexion 95 active”, and it lands in the same record.</div>` : ''}
+      </div>
+    </div>
+  </div></div>`;
+}
+function openDiagram() { S.diag = S.diag || { joint: null, side: null, type: 'rom', motion: null, mode: 'active', value: null }; $('#overlay-host').innerHTML = viewDiagram(); }
+function closeDiagram() { S.diag = null; $('#overlay-host').innerHTML = ''; }
+
+// ---------------------------------------------------------------- actions
+function toast(msg) {
+  const h = $('#toast-host');
+  h.innerHTML = `<div class="toast">${esc(msg)}</div>`;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { h.innerHTML = ''; }, 2200);
+}
+function go(step) {
+  stopTimer();
+  if (step === 'record' && !S.consent) S.consent = { type: 'verbal', at: '3:02 PM' };
+  if (step === 'record' && S.rec.state !== 'paused') { S.rec.state = 'recording'; startTimer(); }
+  if (step === 'signed' && !S.signedAt) S.signedAt = 'Signed 3:58 PM by you';
+  S.step = step; S.open = null;
+  render(); window.scrollTo(0, 0);
+}
+function startTimer() { stopTimer(); S.rec.timer = setInterval(() => { S.rec.ms += 1000; const t = $('#timer'); if (t) t.textContent = mmss(S.rec.ms); }, 1000); }
+function stopTimer() { if (S.rec.timer) clearInterval(S.rec.timer); S.rec.timer = null; }
+function process() {
+  S.step = 'processing'; S.procStep = 0; render();
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const tick = () => {
+    S.procStep++;
+    if (S.procStep >= PROC_STEPS.length) { S.step = 'review'; render(); window.scrollTo(0, 0); return; }
+    render(); setTimeout(tick, reduce ? 50 : 650);
+  };
+  setTimeout(tick, reduce ? 50 : 650);
+}
+function setStatus(id, status) {
+  const x = byId(id);
+  x.status = status;
+  if (status !== 'pending') x.flags = x.flags || [];
+}
+function scrollToRow(id) { requestAnimationFrame(() => { const el = document.getElementById(`row-${id}`); if (el) { el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); const f = el.querySelector('textarea, input, select'); if (f) f.focus({ preventScroll: true }); } }); }
+
+function save(id) {
+  const x = byId(id), k = kindOf(id);
+  const el = document.getElementById(`ed-${id}`);
+  const err = document.getElementById(`err-${id}`);
+  if (k === 'goal') { if (!el.value.trim()) return (err.textContent = 'Goal text cannot be empty.'); x.text = el.value.trim(); }
+  else if (k === 'finding') {
+    if (fieldKind(x.fieldKey) === 'number') { const n = Number(el.value); if (el.value === '' || n < 0 || n > 10) return (err.textContent = 'Enter a pain rating from 0 to 10.'); x.value = n; }
+    else { if (!el.value.trim()) return (err.textContent = 'Enter text, or remove the item instead.'); x.value = el.value.trim(); }
+  } else if (x.value.kind === 'number') {
+    const n = Number(el.value);
+    const r = ROM[`${x.joint}|${x.motion}`];
+    if (el.value === '' || Number.isNaN(n)) return (err.textContent = 'Enter a value in degrees.');
+    if (r && (n < r[0] || n > r[1])) return (err.textContent = `${n}° is outside the plausible range for ${x.joint} ${x.motion} (${r[0]}° to ${r[1]}°). Check the value.`);
+    x.value = { kind: 'number', value: n };
+    if (S.draftSide) x.side = S.draftSide;
+    if (S.draftMode) x.mode = S.draftMode;
+  } else if (x.value.kind === 'grade') x.value = { kind: 'grade', ...parseGrade(el.value) };
+  else if (x.value.kind === 'result') x.value = { kind: 'result', result: el.value };
+  x.status = x.origin === 'ai' ? 'edited' : 'confirmed';
+  x.flags = [];
+  S.open = null; S.draftSide = S.draftMode = null;
+  render(); toast('Saved');
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-action], [data-go]');
+  if (!t) return;
+  if (t.dataset.go) return go(t.dataset.go);
+  const a = t.dataset.action, id = t.dataset.id;
+  switch (a) {
+    case 'start': S.consentOpen = true; render(); $('.consent .btn').focus(); break;
+    case 'consent-cancel': S.consentOpen = false; render(); toast('No recording. Document this visit manually.'); break;
+    case 'consent': S.consent = { type: t.dataset.type, at: '3:02 PM' }; S.consentOpen = false; S.rec = { state: 'recording', ms: 0, timer: null }; go('record'); break;
+    case 'pause': S.rec.state = 'paused'; stopTimer(); render(); break;
+    case 'resume': S.rec.state = 'recording'; startTimer(); render(); break;
+    case 'stop': S.rec.state = 'stopped'; stopTimer(); process(); break;
+    case 'source': case 'edit':
+      S.open = S.open && S.open.id === id && S.open.kind === a ? null : { kind: a, id };
+      S.draftSide = S.draftMode = null;
+      render(); if (t.dataset.scroll || a === 'edit') scrollToRow(id); break;
+    case 'close': S.open = null; render(); break;
+    case 'save': save(id); break;
+    case 'confirm': setStatus(id, 'confirmed'); render(); toast(kindOf(id) === 'goal' ? 'Goal accepted' : 'Confirmed'); break;
+    case 'reject': setStatus(id, 'rejected'); S.open = null; render(); toast(kindOf(id) === 'goal' ? 'Goal rejected' : 'Removed from note'); break;
+    case 'restore': setStatus(id, byId(id).origin === 'ai' && byId(id).flags.length ? 'pending' : 'confirmed'); render(); break;
+    case 'keep': setStatus(id, 'confirmed'); t.dataset.others.split(',').filter(Boolean).forEach((o) => setStatus(o, 'rejected')); render(); toast(`Kept ${fmtMeasure(byId(id))}`); break;
+    case 'ed-side': S.draftSide = t.dataset.v; t.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === t)); break;
+    case 'ed-mode': S.draftMode = t.dataset.v; t.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === t)); break;
+    case 'write': S.open = { kind: 'edit', id: `miss-${t.dataset.key}` }; render(); scrollToRow(`miss-${t.dataset.key}`); break;
+    case 'save-new': {
+      const v = document.getElementById(`ed-miss-${t.dataset.key}`).value.trim();
+      if (!v) return;
+      S.findings.push({ id: newId(), fieldKey: t.dataset.key, value: v, origin: 'clinician', status: 'confirmed', confidence: null, sourceSpan: null, flags: [] });
+      S.open = null; render(); toast('Added to note'); break;
+    }
+    case 'goto-goals': { const g = S.goals.find((x) => x.status === 'pending'); if (g) scrollToRow(g.id); break; }
+    case 'ack': S.ack = t.checked; render(); break;
+    case 'sign': go('signed'); break;
+    case 'reset': location.reload(); break;
+    case 'diagram': openDiagram(); break;
+    case 'diag-close': closeDiagram(); break;
+    case 'diag-bg': if (e.target === t) closeDiagram(); break;
+    case 'joint': S.diag.joint = t.dataset.j; S.diag.side = t.dataset.s || null; S.diag.motion = MOTIONS[S.diag.joint][0]; openDiagram(); break;
+    case 'diag-set': { const v = document.getElementById('dg-val'); if (v) S.diag.value = v.value; S.diag[t.dataset.k] = t.dataset.v; openDiagram(); break; }
+    case 'diag-save': {
+      const d = S.diag, err = $('#dg-err');
+      const m = { id: newId(), measureTypeId: d.type === 'rom' ? 'pt.rom' : 'pt.mmt', bodyRegion: null, joint: d.joint, side: d.side, motion: d.motion, mode: d.type === 'rom' ? d.mode : null, unit: d.type === 'rom' ? 'deg' : null, notes: null, origin: 'clinician', status: 'confirmed', confidence: null, sourceSpan: null, flags: [] };
+      if (d.type === 'rom') {
+        const raw = $('#dg-val').value; const n = Number(raw); const r = ROM[`${d.joint}|${d.motion}`];
+        if (raw === '' || Number.isNaN(n)) return (err.textContent = 'Enter a value in degrees.');
+        if (r && (n < r[0] || n > r[1])) return (err.textContent = `${n}° is outside the plausible range (${r[0]}° to ${r[1]}°). Check the value.`);
+        m.value = { kind: 'number', value: n };
+      } else m.value = { kind: 'grade', ...parseGrade($('#dg-grade').value) };
+      S.measurements.push(m); closeDiagram(); render(); toast(`Added ${fmtMeasure(m)}`); break;
+    }
+    case 'template': break;
+  }
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.action === 'template') { S.templateId = t.value; render(); toast(`Template: ${tpl().name}. Nothing was lost.`); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { if (S.diag) closeDiagram(); else if (S.open) { S.open = null; render(); } }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('circle.joint')) { e.preventDefault(); e.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+});
+
+render();
+</script>

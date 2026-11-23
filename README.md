@@ -8,7 +8,19 @@ npm test           # 54 tests
 npm run typecheck
 npm run demo       # end-to-end eval on the synthetic test patient
 npm run db:check   # applies migrations to a throwaway Postgres 16 and tests DB guards
+npm run ui:build   # rebuilds ui/review.html from real pipeline output
 ```
+
+## UI prototype
+
+`ui/review.html` is a clickable prototype of the PT flow: appointment, consent, recording, review and sign. Open it in a browser. It is built from `ui/review.src.html` plus the real pipeline output for the synthetic patient, so what you see is what the extractor and goal engine produced.
+
+- **The transcript is hidden.** The PT records, stops and gets a drafted note. The quote button on each item shows only the words it came from and when they were said. The transcript is still stored, because it is what links each item back to its source.
+- **Review rail:** items needing review come first, and conflicting values are shown side by side so the PT keeps one. The rail also lists empty required fields and draft goals.
+- **Sign bar:** stays at the bottom of the screen. Signing is blocked until flagged items and goals are resolved. Signing with empty required fields needs an explicit checkbox.
+- **Other parts:** a template switcher that never drops data, and a body-diagram manual entry that checks values against plausible ranges.
+
+The UI is a prototype only: its edits stay in the browser and are not wired to the core service.
 
 ## Layout
 
@@ -75,4 +87,4 @@ db/migrations/          Postgres schema with consent / lock / append-only trigge
 - **Narrative fields.** The rule-based extractor handles numbers, sides, grades and short quoted phrases well. Narrative fields (chief complaint, assessment) are left for the LLM extractor or the PT.
 - **Parser limits.** Spoken number words for degrees ("ninety-five") and range forms ("0 to 95") are not handled.
 - **Persistence.** It's in memory behind a `Store` port. The SQL schema is real and tested, but there is no Postgres-backed `Store` yet.
-- **Not built:** the UI (body diagram, completeness panel, review screen), a live EMR adapter, outcome-measure item scoring, re-eval comparison and org template customization. The last three are post-MVP.
+- **Not built:** a production UI (the prototype in `ui/` is not connected to the service), a live EMR adapter, outcome-measure item scoring, re-eval comparison and org template customization. The last three are post-MVP.
