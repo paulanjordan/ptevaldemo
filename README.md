@@ -22,6 +22,10 @@ npm run ui:build   # rebuilds ui/review.html from real pipeline output
 
 The UI is a prototype only: its edits stay in the browser and are not wired to the core service.
 
+### Hosting on Vercel
+
+`vercel.json` deploys `ui/index.html` (a standalone copy built by `npm run ui:build`) as a static site, with no install step, no server and `noindex` headers. In Vercel, choose **Add New → Project**, import this GitHub repo and click **Deploy**; every push to `main` then redeploys. Share the production `*.vercel.app` URL. Preview URLs require a Vercel login by default.
+
 ## Layout
 
 ```

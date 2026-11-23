@@ -47,5 +47,23 @@ const data = JSON.stringify({
 
 const src = new URL('../ui/review.src.html', import.meta.url);
 const out = new URL('../ui/review.html', import.meta.url);
-writeFileSync(out, readFileSync(src, 'utf8').replace('/*DATA*/null', data));
-console.log(`wrote ui/review.html (${data.length} bytes of session data)`);
+const page = readFileSync(src, 'utf8').replace('/*DATA*/null', data);
+writeFileSync(out, page);
+
+// Standalone copy for static hosting (Vercel): the artifact viewer adds the
+// document skeleton itself, a plain web host does not.
+const standalone = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+${page}
+</body>
+</html>
+`;
+writeFileSync(new URL('../ui/index.html', import.meta.url), standalone);
+console.log(`wrote ui/review.html and ui/index.html (${data.length} bytes of session data)`);
